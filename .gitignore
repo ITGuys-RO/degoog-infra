@@ -9,6 +9,7 @@ dist
 # back up with scripts/backup.sh, never commit.
 data/
 wireguard-config/
+searxng-config/
 
 # Backup artifacts
 backups/

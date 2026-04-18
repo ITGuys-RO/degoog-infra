@@ -15,7 +15,8 @@ echo "Creating ${OUT}"
 tar czf "${OUT}" \
   --numeric-owner \
   data \
-  wireguard-config
+  wireguard-config \
+  searxng-config
 
 echo
 echo "Backup complete. Keep it somewhere safe:"

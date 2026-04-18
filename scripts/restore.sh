@@ -17,8 +17,8 @@ fi
 
 cd "$(dirname "$0")/.."
 
-if [[ -e data || -e wireguard-config ]]; then
-  echo "ERROR: data/ or wireguard-config/ already exists." >&2
+if [[ -e data || -e wireguard-config || -e searxng-config ]]; then
+  echo "ERROR: data/, wireguard-config/, or searxng-config/ already exists." >&2
   echo "Move them aside before restoring to avoid merging state." >&2
   exit 1
 fi
@@ -28,9 +28,9 @@ tar xzf "$ARCHIVE"
 
 echo "Fixing ownership (container runs as UID 1002)..."
 if [[ "$(id -u)" -eq 0 ]]; then
-  chown -R 1002:1002 data wireguard-config
+  chown -R 1002:1002 data wireguard-config searxng-config
 else
-  sudo chown -R 1002:1002 data wireguard-config
+  sudo chown -R 1002:1002 data wireguard-config searxng-config
 fi
 
 echo "Done. Next: ensure .env is in place, then 'docker compose up -d'."

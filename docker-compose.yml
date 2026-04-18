@@ -63,6 +63,17 @@ services:
     networks:
       - internal
 
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    volumes:
+      - ./searxng-config:/etc/searxng
+    restart: unless-stopped
+    networks:
+      - internal
+
 networks:
   internal:
     ipam:

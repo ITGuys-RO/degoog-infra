@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Snapshot runtime state (degoog data + wireguard config) into ./backups/.
+# Snapshot runtime state (degoog data + searxng config) into ./backups/.
 # Run BEFORE migrating to a new box, or on a schedule.
 #
 # Usage: ./scripts/backup.sh
@@ -15,11 +15,10 @@ echo "Creating ${OUT}"
 tar czf "${OUT}" \
   --numeric-owner \
   data \
-  wireguard-config \
   searxng-config
 
 echo
 echo "Backup complete. Keep it somewhere safe:"
 echo "  ${OUT} ($(du -h "${OUT}" | cut -f1))"
 echo
-echo "wireguard-config contains peer private keys. Treat this file as a secret."
+echo "Contains degoog state and searxng config."

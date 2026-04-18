@@ -1,19 +1,18 @@
 # Migration runbook
 
-Everything needed to move this entire stack (degoog + wireguard + MCP + tunnel) to a new box in one shot. Nothing in Cloudflare's dashboard needs to change, DNS survives, and your phone won't need to re-pair with Wireguard.
+Everything needed to move this entire stack (degoog + MCP + searxng + valkey + tunnel) to a new box in one shot. Nothing in Cloudflare's dashboard needs to change, and DNS survives.
 
 ## What survives the move (free)
 
-- `degoog-mcp.itguys.ro` — the hostname lives in your Cloudflare DNS, unaffected by the box.
-- `vpn2.itguys.ro` — same; points at whatever public IP you update the A record to after the move.
+- `degoog-mcp.itguys.ro` and `degoog.itguys.ro` — hostnames live in your Cloudflare DNS/Tunnel config, unaffected by the box.
 - The Cloudflare Tunnel itself — the token is machine-independent. Same token on a new box = same tunnel resurfacing.
-- Your phone's Wireguard config — as long as `wireguard-config/` is restored byte-for-byte, the peer keys still match the server.
+- The Cloudflare Access application + policy protecting `degoog.itguys.ro` — all config lives in Zero Trust, not on the box.
 
 ## What you move with you
 
 - This repo (git clone on the new box).
 - `.env` — the two secrets: `DEGOOG_MCP_BEARER` and `CLOUDFLARE_TUNNEL_TOKEN`. Keep these in a password manager.
-- A recent backup tarball (`backups/degoog-YYYYMMDDTHHMMSSZ.tar.gz`) containing `data/` and `wireguard-config/`.
+- A recent backup tarball (`backups/degoog-YYYYMMDDTHHMMSSZ.tar.gz`) containing `data/` and `searxng-config/`.
 
 ## Before you pull the plug on the old box
 
@@ -41,10 +40,7 @@ cp .env.example .env
 # 4. Restore runtime state
 ./scripts/restore.sh /path/to/degoog-<timestamp>.tar.gz
 
-# 5. Update the A record for vpn2.itguys.ro to point at the new box's public IP
-#    (Cloudflare dashboard: DNS -> Records)
-
-# 6. Bring the stack up
+# 5. Bring the stack up
 docker compose up -d
 docker compose logs -f
 ```
@@ -66,18 +62,17 @@ curl -i -X POST https://degoog-mcp.itguys.ro/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
 ```
 
-Then reconnect your phone to Wireguard. Because the peer keys restored byte-for-byte, the existing config on the phone keeps working — no QR re-scan.
+Phone access just works: `https://degoog.itguys.ro` authenticates via Google Workspace SSO and routes through the new box's connector.
 
 ## Partial-scenario cheat sheet
 
 | Scenario | Action |
 | --- | --- |
 | Box died, backup is fresh | Full runbook above. |
-| Box died, no backup | Reinstall + clone repo. Degoog loses cached state (rebuilds on first queries). Wireguard loses peer key — phone needs QR re-scan. Tunnel token still works. |
+| Box died, no backup | Reinstall + clone repo. Degoog loses cached state (rebuilds on first queries). SearXNG regenerates default `settings.yml` — re-apply the `formats: [html, json]` and `valkey.url` tweaks. Tunnel token still works. |
 | Box alive, just redeploying stack | `docker compose down && docker compose up -d`. No data move needed. |
 | Lost `.env` | Recover `DEGOOG_MCP_BEARER` from claude.ai connector config (show once) or rotate: set a new one in `.env`, `docker compose restart degoog-mcp cloudflared`, update the Custom Connector. Recover `CLOUDFLARE_TUNNEL_TOKEN` from Cloudflare dashboard (Zero Trust → Networks → Connectors → (your tunnel) → Refresh). |
 | Lost tunnel token | In Cloudflare dashboard, delete the connector and create a new one; paste the new token in `.env`. DNS / hostname survive. |
-| Phone re-enrollment needed | `docker compose exec wireguard ls /config/peer_phone` → QR PNG. Re-scan from phone. |
 
 ## Routine backups
 

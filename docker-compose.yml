@@ -14,31 +14,6 @@ services:
       internal:
         ipv4_address: 172.20.0.10
 
-  wireguard:
-    image: linuxserver/wireguard
-    container_name: wireguard
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    environment:
-      - PUID=1002
-      - PGID=1002
-      - TZ=Europe/Bucharest
-      - SERVERURL=vpn2.itguys.ro
-      - SERVERPORT=51820
-      - PEERS=phone
-      - PEERDNS=1.1.1.1,1.0.0.1
-      - INTERNAL_SUBNET=10.13.13.0
-    volumes:
-      - ./wireguard-config:/config
-    ports:
-      - "51820:51820/udp"
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-    restart: unless-stopped
-    networks:
-      - internal
-
   degoog-mcp:
     build: ./degoog-mcp
     container_name: degoog-mcp
@@ -70,6 +45,16 @@ services:
       - SEARXNG_BASE_URL=http://searxng:8080/
     volumes:
       - ./searxng-config:/etc/searxng
+    depends_on:
+      - valkey
+    restart: unless-stopped
+    networks:
+      - internal
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: valkey
+    command: valkey-server --save "" --appendonly no
     restart: unless-stopped
     networks:
       - internal

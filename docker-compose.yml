@@ -21,6 +21,8 @@ services:
       DEGOOG_URL: http://degoog:4444
       DEGOOG_DEFAULT_LANGUAGE: ${DEGOOG_DEFAULT_LANGUAGE:-ro}
       DEGOOG_TIMEOUT_MS: ${DEGOOG_TIMEOUT_MS:-15000}
+      MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-}
+      MCP_OAUTH_AUTHORIZATION_SERVER: ${MCP_OAUTH_AUTHORIZATION_SERVER:-}
     depends_on:
       - degoog
     restart: unless-stopped

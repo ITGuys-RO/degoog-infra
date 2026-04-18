@@ -90,10 +90,138 @@ export async function runStdio(): Promise<void> {
 export async function runHttp(host: string, port: number): Promise<void> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
+  // Public base URL the MCP is reachable at (through the tunnel). Used to
+  // emit spec-compliant RFC 9728 Protected Resource Metadata so MCP clients
+  // can discover the OAuth authorization server. Cloudflare Access only
+  // serves its metadata at a proprietary well-known path; we serve the
+  // standard one here.
+  const publicBaseUrl = process.env.MCP_PUBLIC_BASE_URL;
+  const oauthAuthServer = process.env.MCP_OAUTH_AUTHORIZATION_SERVER;
+
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (req.url === "/healthz" && req.method === "GET") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // MCP OAuth clients (incl. Claude) treat the resource host as the
+    // authorization server and ignore PRM's authorization_servers pointing
+    // elsewhere. So we advertise self as the AS and proxy/redirect the
+    // real OAuth endpoints to Cloudflare Access's team domain.
+    if (
+      req.url === "/.well-known/oauth-protected-resource" &&
+      req.method === "GET"
+    ) {
+      if (!publicBaseUrl || !oauthAuthServer) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "oauth discovery not configured" }));
+        return;
+      }
+      const base = publicBaseUrl.replace(/\/$/, "");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          resource: `${base}/mcp`,
+          authorization_servers: [base],
+          bearer_methods_supported: ["header"],
+          scopes_supported: ["openid", "email", "profile"],
+        }),
+      );
+      return;
+    }
+
+    if (
+      req.url === "/.well-known/oauth-authorization-server" &&
+      req.method === "GET"
+    ) {
+      if (!publicBaseUrl || !oauthAuthServer) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "oauth discovery not configured" }));
+        return;
+      }
+      const base = publicBaseUrl.replace(/\/$/, "");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          issuer: base,
+          authorization_endpoint: `${base}/authorize`,
+          token_endpoint: `${base}/token`,
+          registration_endpoint: `${base}/register`,
+          response_types_supported: ["code"],
+          response_modes_supported: ["query"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          token_endpoint_auth_methods_supported: [
+            "client_secret_basic",
+            "client_secret_post",
+            "none",
+          ],
+          code_challenge_methods_supported: ["S256"],
+          scopes_supported: ["openid", "email", "profile"],
+        }),
+      );
+      return;
+    }
+
+    if (req.url?.startsWith("/authorize") && req.method === "GET") {
+      if (!oauthAuthServer) {
+        res.writeHead(500).end("oauth upstream not configured");
+        return;
+      }
+      const upstream = new URL(
+        "/cdn-cgi/access/oauth/authorization",
+        oauthAuthServer,
+      );
+      const query = req.url.split("?")[1] ?? "";
+      if (query) upstream.search = query;
+      res.writeHead(302, { location: upstream.toString() });
+      res.end();
+      return;
+    }
+
+    if (
+      (req.url === "/token" || req.url === "/register") &&
+      req.method === "POST"
+    ) {
+      if (!oauthAuthServer) {
+        res.writeHead(500).end("oauth upstream not configured");
+        return;
+      }
+      const upstreamPath =
+        req.url === "/token"
+          ? "/cdn-cgi/access/oauth/token"
+          : "/cdn-cgi/access/oauth/registration";
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const body = Buffer.concat(chunks);
+        const headers: Record<string, string> = {};
+        if (typeof req.headers["content-type"] === "string") {
+          headers["content-type"] = req.headers["content-type"];
+        }
+        if (typeof req.headers["authorization"] === "string") {
+          headers["authorization"] = req.headers["authorization"];
+        }
+        const upstreamRes = await fetch(new URL(upstreamPath, oauthAuthServer), {
+          method: "POST",
+          headers,
+          body,
+        });
+        const resBody = Buffer.from(await upstreamRes.arrayBuffer());
+        res.writeHead(upstreamRes.status, {
+          "content-type":
+            upstreamRes.headers.get("content-type") ?? "application/json",
+        });
+        res.end(resBody);
+      } catch (err) {
+        console.error("[degoog-mcp] oauth proxy error:", err);
+        if (!res.headersSent) {
+          res.writeHead(502, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "bad gateway" }));
+        }
+      }
       return;
     }
 
@@ -135,4 +263,9 @@ export async function runHttp(host: string, port: number): Promise<void> {
   console.error(
     `[degoog-mcp] listening on http://${host}:${port}/mcp — authentication is handled by the upstream gateway (Cloudflare Access).`,
   );
+  if (publicBaseUrl && oauthAuthServer) {
+    console.error(
+      `[degoog-mcp] exposing /.well-known/oauth-protected-resource → ${oauthAuthServer}`,
+    );
+  }
 }

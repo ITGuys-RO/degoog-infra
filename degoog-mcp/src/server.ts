@@ -87,7 +87,7 @@ export async function runStdio(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
-export async function runHttp(host: string, port: number, bearer: string | undefined): Promise<void> {
+export async function runHttp(host: string, port: number): Promise<void> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -95,15 +95,6 @@ export async function runHttp(host: string, port: number, bearer: string | undef
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
       return;
-    }
-
-    if (bearer !== undefined) {
-      const auth = req.headers["authorization"];
-      if (typeof auth !== "string" || !auth.startsWith("Bearer ") || auth.slice(7) !== bearer) {
-        res.writeHead(401, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "unauthorized" }));
-        return;
-      }
     }
 
     if (!req.url?.startsWith("/mcp")) {
@@ -141,11 +132,7 @@ export async function runHttp(host: string, port: number, bearer: string | undef
   });
 
   await new Promise<void>((resolve) => httpServer.listen(port, host, resolve));
-  if (bearer === undefined) {
-    console.error(
-      `[degoog-mcp] listening on http://${host}:${port}/mcp WITHOUT bearer auth — rely on an upstream gateway (Cloudflare Access, etc.) to authenticate requests.`,
-    );
-  } else {
-    console.error(`[degoog-mcp] listening on http://${host}:${port}/mcp`);
-  }
+  console.error(
+    `[degoog-mcp] listening on http://${host}:${port}/mcp — authentication is handled by the upstream gateway (Cloudflare Access).`,
+  );
 }

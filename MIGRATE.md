@@ -11,7 +11,7 @@ Everything needed to move this entire stack (degoog + MCP + searxng + valkey + t
 ## What you move with you
 
 - This repo (git clone on the new box).
-- `.env` — the two secrets: `DEGOOG_MCP_BEARER` and `CLOUDFLARE_TUNNEL_TOKEN`. Keep these in a password manager.
+- `.env` — the one secret: `CLOUDFLARE_TUNNEL_TOKEN`. Keep in a password manager.
 - A recent backup tarball (`backups/degoog-YYYYMMDDTHHMMSSZ.tar.gz`) containing `data/` and `searxng-config/`.
 
 ## Before you pull the plug on the old box
@@ -35,7 +35,7 @@ cd ~/projects/degoog
 
 # 3. Put secrets in place
 cp .env.example .env
-# edit .env and paste DEGOOG_MCP_BEARER and CLOUDFLARE_TUNNEL_TOKEN
+# edit .env and paste CLOUDFLARE_TUNNEL_TOKEN
 
 # 4. Restore runtime state
 ./scripts/restore.sh /path/to/degoog-<timestamp>.tar.gz
@@ -56,10 +56,11 @@ curl -i https://degoog-mcp.itguys.ro/healthz
 
 # mcp auth works
 curl -i -X POST https://degoog-mcp.itguys.ro/mcp \
-  -H "authorization: Bearer $(grep DEGOOG_MCP_BEARER .env | cut -d= -f2)" \
   -H "content-type: application/json" \
   -H "accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+# Expect 302 to Cloudflare Access login — that means the tunnel reached the
+# MCP and Access is gating it, which is the correct production state.
 ```
 
 Phone access just works: `https://degoog.itguys.ro` authenticates via Google Workspace SSO and routes through the new box's connector.
@@ -71,7 +72,7 @@ Phone access just works: `https://degoog.itguys.ro` authenticates via Google Wor
 | Box died, backup is fresh | Full runbook above. |
 | Box died, no backup | Reinstall + clone repo. Degoog loses cached state (rebuilds on first queries). SearXNG regenerates default `settings.yml` — re-apply the `formats: [html, json]` and `valkey.url` tweaks. Tunnel token still works. |
 | Box alive, just redeploying stack | `docker compose down && docker compose up -d`. No data move needed. |
-| Lost `.env` | Recover `DEGOOG_MCP_BEARER` from claude.ai connector config (show once) or rotate: set a new one in `.env`, `docker compose restart degoog-mcp cloudflared`, update the Custom Connector. Recover `CLOUDFLARE_TUNNEL_TOKEN` from Cloudflare dashboard (Zero Trust → Networks → Connectors → (your tunnel) → Refresh). |
+| Lost `.env` | Recover `CLOUDFLARE_TUNNEL_TOKEN` from Cloudflare dashboard (Zero Trust → Networks → Connectors → (your tunnel) → Refresh). |
 | Lost tunnel token | In Cloudflare dashboard, delete the connector and create a new one; paste the new token in `.env`. DNS / hostname survive. |
 
 ## Routine backups

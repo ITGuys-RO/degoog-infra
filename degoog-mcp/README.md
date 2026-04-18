@@ -31,22 +31,14 @@ DEGOOG_URL=http://degoog.local:4444 node dist/index.js
 
 ### http (remote, for claude.ai / mobile)
 
-Create `.env` from `.env.example` and set `DEGOOG_MCP_BEARER` to a random token:
-
 ```sh
 cp .env.example .env
-node -e "console.log('DEGOOG_MCP_BEARER=' + crypto.randomBytes(32).toString('base64url'))" >> .env
-```
-
-Then start the server with Node's built-in env-file loader (Node 24+):
-
-```sh
 node --env-file=.env dist/index.js --transport http --host 127.0.0.1 --port 8765
 ```
 
 Endpoint: `POST /mcp` (streamable-http). `GET /healthz` is unauthenticated liveness.
 
-In CI / deployment, set `DEGOOG_MCP_BEARER` as a GitHub Actions secret (or the equivalent) and pass it through to the container at runtime instead of committing `.env`.
+**Auth**: the http transport itself does no authentication. It must run behind an upstream gateway (Cloudflare Access OAuth 2.1, or equivalent) that authenticates callers before they reach `/mcp`. Don't expose this port to the public internet without a gateway in front.
 
 ## Configuration
 
@@ -57,7 +49,6 @@ See `.env.example`. Key variables:
 | `DEGOOG_URL` | `http://degoog.local:4444` | Base URL of your degoog instance. |
 | `DEGOOG_DEFAULT_LANGUAGE` | `ro` | Fallback language when the caller omits it. |
 | `DEGOOG_TIMEOUT_MS` | `15000` | Request timeout (ms). |
-| `DEGOOG_MCP_BEARER` | — | Required for `--transport http`. |
 
 ## Docker
 
@@ -65,7 +56,6 @@ See `.env.example`. Key variables:
 docker build -t degoog-mcp .
 docker run --rm -p 8765:8765 \
   -e DEGOOG_URL=http://host.docker.internal:4444 \
-  -e DEGOOG_MCP_BEARER=your-secret \
   degoog-mcp
 ```
 
@@ -89,8 +79,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 ## claude.ai Custom Connector (streamable-http)
 
-1. Expose the server via Cloudflare Tunnel (see the root README).
-2. In Claude → Settings → Connectors → Add custom connector, set URL to `https://degoog-mcp.itguys.ro/mcp` and Authentication to the bearer token.
+1. Expose the server via Cloudflare Tunnel and put a Cloudflare Access application in front of it (see the root README). Access acts as the OAuth 2.1 authorization server.
+2. In Claude → Settings → Connectors → Add custom connector, set URL to `https://degoog-mcp.itguys.ro/mcp` and Authentication to **OAuth**. The app walks you through an IdP sign-in (Google SSO, etc.) on first use.
 
 ## License
 

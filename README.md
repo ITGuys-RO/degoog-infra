@@ -46,18 +46,18 @@ degoog/
 │ claude.ai / iOS  │─────http────▶│              │             │ phone / │
 │ Android          │              │              │             │ desktop │
 └──────────────────┘              └──────▲───────┘             └────▲────┘
-                                         │ bearer auth              │ Google SSO
-                               Cloudflare Tunnel             Cloudflare Access
+                                         │ Google SSO (OAuth 2.1)   │ Google SSO
+                               Cloudflare Access            Cloudflare Access
                             (degoog-mcp.itguys.ro)           (degoog.itguys.ro)
 ```
 
-Five services share one Docker network (`172.20.0.0/24`). Cloudflared terminates two public hostnames: `degoog-mcp.itguys.ro` → `http://degoog-mcp:8765` (MCP, bearer-gated for Claude mobile/web) and `degoog.itguys.ro` → `http://degoog:4444` (browser UI, Cloudflare Access + Google Workspace SSO gated). SearXNG runs on the same internal network and is queried by degoog as a plugin engine. Valkey provides in-memory state for SearXNG's limiter and engine-token caches.
+Five services share one Docker network (`172.20.0.0/24`). Cloudflared terminates two public hostnames, both gated by Cloudflare Access + Google Workspace SSO: `degoog-mcp.itguys.ro` → `http://degoog-mcp:8765` (remote MCP, OAuth for Claude mobile/web Custom Connectors) and `degoog.itguys.ro` → `http://degoog:4444` (browser UI). The MCP server itself has no app-layer auth — Access authenticates every call before it reaches origin. SearXNG runs on the same internal network and is queried by degoog as a plugin engine. Valkey provides in-memory state for SearXNG's limiter and engine-token caches.
 
 ## Targets
 
 - **Claude Code CLI:** `claude-degoog-plugin` denies built-in `WebSearch`/`WebFetch` via a `PreToolUse` hook and routes Claude to `mcp__degoog__degoog_search` / `degoog_fetch`. Local stdio MCP is bundled via `.mcp.json`.
 - **Claude Desktop:** stdio MCP via `claude_desktop_config.json` pointing at `degoog-mcp/dist/index.js`. No hooks available — disable built-in web search manually in Claude settings.
-- **claude.ai web, iOS, Android:** streamable-HTTP MCP exposed at `https://degoog-mcp.itguys.ro/mcp` via Cloudflare Tunnel, authenticated with a bearer token. Registered as a Custom Connector.
+- **claude.ai web, iOS, Android:** streamable-HTTP MCP exposed at `https://degoog-mcp.itguys.ro/mcp` via Cloudflare Tunnel. Cloudflare Access sits in front and acts as the OAuth 2.1 authorization server; the Claude app does a Google sign-in through Access on first connection. Registered as a Custom Connector with OAuth auth.
 - **Browser UI (phone + desktop):** `https://degoog.itguys.ro` via Cloudflare Tunnel, gated by a Cloudflare Access policy requiring Google Workspace SSO (`@itguys.ro`). `/opensearch.xml` and `/public/*` are Bypass-policy'd so browser features (search engine auto-discover, PWA manifest, favicons) work without auth.
 
 ## First-run install
@@ -68,10 +68,10 @@ Five services share one Docker network (`172.20.0.0/24`). Cloudflared terminates
 git clone <repo> ~/projects/degoog
 cd ~/projects/degoog
 cp .env.example .env
-# Generate a bearer token:
-node -e "console.log('DEGOOG_MCP_BEARER=' + crypto.randomBytes(32).toString('base64url'))" >> .env
 # Paste your CLOUDFLARE_TUNNEL_TOKEN into .env (from Zero Trust → Networks → Tunnels → (yours) → install connector)
 ```
+
+In Cloudflare Zero Trust, create Access applications for `degoog.itguys.ro` and `degoog-mcp.itguys.ro` with a policy that requires your Google Workspace SSO (or whichever IdP you use). The MCP server expects Access to gate all non-`/healthz` requests — it does no auth of its own.
 
 ### 2. (Optional) Restore prior state
 
@@ -101,13 +101,11 @@ curl http://127.0.0.1:4444/ | head -c 80
 # internal compose DNS
 docker compose exec degoog-mcp wget -qO- http://degoog:4444/ | head -c 80
 
-# tunnel liveness (public)
+# tunnel liveness (public, /healthz bypasses Access)
 curl -i https://degoog-mcp.itguys.ro/healthz
 
-# MCP auth (public)
-TOKEN="$(grep DEGOOG_MCP_BEARER .env | cut -d= -f2)"
+# MCP (should redirect to Cloudflare Access login — 302 to cloudflareaccess.com)
 curl -i -X POST https://degoog-mcp.itguys.ro/mcp \
-  -H "authorization: Bearer $TOKEN" \
   -H "content-type: application/json" \
   -H "accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
@@ -135,7 +133,7 @@ claude --plugin-dir ./claude-degoog-plugin
 
 **claude.ai / mobile** — Settings → Connectors → Add custom connector:
 - URL: `https://degoog-mcp.itguys.ro/mcp`
-- Auth: Bearer token, paste `$DEGOOG_MCP_BEARER`.
+- Auth: **OAuth**. The app discovers Cloudflare Access's OAuth metadata and walks you through a Google sign-in on first use.
 
 ## Development (rebuilding degoog-mcp)
 
@@ -163,7 +161,6 @@ crontab -e                           # automate (see MIGRATE.md)
 
 | Var | Purpose |
 | --- | --- |
-| `DEGOOG_MCP_BEARER` | Required. 32-byte random token the MCP checks on `/mcp`. |
 | `DEGOOG_DEFAULT_LANGUAGE` | ISO 639-1, default `ro`. |
 | `DEGOOG_TIMEOUT_MS` | Per-request timeout (ms), default `15000`. |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Required. Connector token from Cloudflare Zero Trust. |

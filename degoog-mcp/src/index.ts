@@ -23,7 +23,8 @@ async function main(): Promise<number> {
         "  DEGOOG_URL                degoog base URL (default http://degoog.local:4444)",
         "  DEGOOG_DEFAULT_LANGUAGE   ISO 639-1 code (default ro)",
         "  DEGOOG_TIMEOUT_MS         request timeout ms (default 15000)",
-        "  DEGOOG_MCP_BEARER         required for --transport http",
+        "  DEGOOG_MCP_BEARER         optional: if set, http transport enforces Bearer auth.",
+        "                            if unset, an upstream gateway (e.g. Cloudflare Access) must gate access.",
         "",
       ].join("\n"),
     );
@@ -40,13 +41,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const bearer = process.env.DEGOOG_MCP_BEARER;
-  if (!bearer) {
-    console.error(
-      "[degoog-mcp] refusing to start http transport without DEGOOG_MCP_BEARER set.",
-    );
-    return 2;
-  }
+  const bearer = process.env.DEGOOG_MCP_BEARER || undefined;
   const port = Number.parseInt(values.port!, 10);
   if (Number.isNaN(port)) {
     console.error(`[degoog-mcp] invalid port: ${values.port}`);

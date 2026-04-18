@@ -1,0 +1,14 @@
+node_modules
+dist
+*.log
+.env
+.env.local
+.DS_Store
+
+# Runtime state (bind mounts). Contents managed by the containers;
+# back up with scripts/backup.sh, never commit.
+data/
+wireguard-config/
+
+# Backup artifacts
+backups/

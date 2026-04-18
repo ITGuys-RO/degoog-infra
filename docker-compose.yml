@@ -1,0 +1,71 @@
+services:
+  degoog:
+    image: ghcr.io/fccview/degoog:latest
+    container_name: degoog
+    environment:
+      - DEGOOG_DEFAULT_SEARCH_LANGUAGE=ro
+    volumes:
+      - ./data:/app/data
+    user: "1002:1002"
+    ports:
+      - "127.0.0.1:4444:4444"
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 172.20.0.10
+
+  wireguard:
+    image: linuxserver/wireguard
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1002
+      - PGID=1002
+      - TZ=Europe/Bucharest
+      - SERVERURL=vpn2.itguys.ro
+      - SERVERPORT=51820
+      - PEERS=phone
+      - PEERDNS=1.1.1.1,1.0.0.1
+      - INTERNAL_SUBNET=10.13.13.0
+    volumes:
+      - ./wireguard-config:/config
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      - internal
+
+  degoog-mcp:
+    build: ./degoog-mcp
+    container_name: degoog-mcp
+    environment:
+      DEGOOG_URL: http://degoog:4444
+      DEGOOG_DEFAULT_LANGUAGE: ${DEGOOG_DEFAULT_LANGUAGE:-ro}
+      DEGOOG_TIMEOUT_MS: ${DEGOOG_TIMEOUT_MS:-15000}
+      DEGOOG_MCP_BEARER: ${DEGOOG_MCP_BEARER:?DEGOOG_MCP_BEARER is required}
+    depends_on:
+      - degoog
+    restart: unless-stopped
+    networks:
+      - internal
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - degoog-mcp
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/24

@@ -1,0 +1,10 @@
+{
+  "name": "claude-degoog",
+  "description": "Routes Claude Code web access through a self-hosted degoog instance. Denies built-in WebSearch/WebFetch and redirects to degoog_search/degoog_fetch MCP tools.",
+  "version": "0.1.0",
+  "author": {
+    "name": "dustfeather"
+  },
+  "homepage": "https://github.com/dustfeather/claude-degoog",
+  "license": "MIT"
+}

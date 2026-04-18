@@ -1,0 +1,96 @@
+# Migration runbook
+
+Everything needed to move this entire stack (degoog + wireguard + MCP + tunnel) to a new box in one shot. Nothing in Cloudflare's dashboard needs to change, DNS survives, and your phone won't need to re-pair with Wireguard.
+
+## What survives the move (free)
+
+- `degoog-mcp.itguys.ro` — the hostname lives in your Cloudflare DNS, unaffected by the box.
+- `vpn2.itguys.ro` — same; points at whatever public IP you update the A record to after the move.
+- The Cloudflare Tunnel itself — the token is machine-independent. Same token on a new box = same tunnel resurfacing.
+- Your phone's Wireguard config — as long as `wireguard-config/` is restored byte-for-byte, the peer keys still match the server.
+
+## What you move with you
+
+- This repo (git clone on the new box).
+- `.env` — the two secrets: `DEGOOG_MCP_BEARER` and `CLOUDFLARE_TUNNEL_TOKEN`. Keep these in a password manager.
+- A recent backup tarball (`backups/degoog-YYYYMMDDTHHMMSSZ.tar.gz`) containing `data/` and `wireguard-config/`.
+
+## Before you pull the plug on the old box
+
+```sh
+cd /home/dustfeather/projects/degoog
+./scripts/backup.sh              # writes backups/degoog-<timestamp>.tar.gz
+```
+
+Transfer `.env` (securely, e.g. via password manager) and the backup tarball to the new box.
+
+## On the new box
+
+```sh
+# 1. Install deps
+sudo apt install -y docker.io docker-compose-plugin
+
+# 2. Clone the repo
+git clone <repo-url> ~/projects/degoog
+cd ~/projects/degoog
+
+# 3. Put secrets in place
+cp .env.example .env
+# edit .env and paste DEGOOG_MCP_BEARER and CLOUDFLARE_TUNNEL_TOKEN
+
+# 4. Restore runtime state
+./scripts/restore.sh /path/to/degoog-<timestamp>.tar.gz
+
+# 5. Update the A record for vpn2.itguys.ro to point at the new box's public IP
+#    (Cloudflare dashboard: DNS -> Records)
+
+# 6. Bring the stack up
+docker compose up -d
+docker compose logs -f
+```
+
+Verify:
+
+```sh
+# degoog reachable via internal DNS
+docker compose exec degoog-mcp wget -qO- http://degoog:4444/ | head -c 80
+
+# tunnel ingress reachable
+curl -i https://degoog-mcp.itguys.ro/healthz
+
+# mcp auth works
+curl -i -X POST https://degoog-mcp.itguys.ro/mcp \
+  -H "authorization: Bearer $(grep DEGOOG_MCP_BEARER .env | cut -d= -f2)" \
+  -H "content-type: application/json" \
+  -H "accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+```
+
+Then reconnect your phone to Wireguard. Because the peer keys restored byte-for-byte, the existing config on the phone keeps working — no QR re-scan.
+
+## Partial-scenario cheat sheet
+
+| Scenario | Action |
+| --- | --- |
+| Box died, backup is fresh | Full runbook above. |
+| Box died, no backup | Reinstall + clone repo. Degoog loses cached state (rebuilds on first queries). Wireguard loses peer key — phone needs QR re-scan. Tunnel token still works. |
+| Box alive, just redeploying stack | `docker compose down && docker compose up -d`. No data move needed. |
+| Lost `.env` | Recover `DEGOOG_MCP_BEARER` from claude.ai connector config (show once) or rotate: set a new one in `.env`, `docker compose restart degoog-mcp cloudflared`, update the Custom Connector. Recover `CLOUDFLARE_TUNNEL_TOKEN` from Cloudflare dashboard (Zero Trust → Networks → Connectors → (your tunnel) → Refresh). |
+| Lost tunnel token | In Cloudflare dashboard, delete the connector and create a new one; paste the new token in `.env`. DNS / hostname survive. |
+| Phone re-enrollment needed | `docker compose exec wireguard ls /config/peer_phone` → QR PNG. Re-scan from phone. |
+
+## Routine backups
+
+Once you're on the new box:
+
+```sh
+# Crontab: weekly at 03:00 Sunday, keep 8 most recent backups.
+0 3 * * 0 cd ~/projects/degoog && ./scripts/backup.sh && ls -1t backups/degoog-*.tar.gz | tail -n +9 | xargs -r rm
+```
+
+Encrypt before uploading offsite:
+
+```sh
+gpg --symmetric --cipher-algo AES256 backups/degoog-<timestamp>.tar.gz
+# Produces .tar.gz.gpg; push that to object storage / offsite.
+```

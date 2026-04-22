@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Three intertwined artifacts live here, deployed as one unit:
 
-1. **`docker-compose.yml`** — five-service stack (`degoog`, `degoog-mcp`, `cloudflared`, `searxng`, `valkey`) on a single internal network `172.20.0.0/24`. Only `degoog` exposes a host port (`127.0.0.1:4444`) and `degoog-mcp` exposes `0.0.0.0:8765`. Everything else is reached via compose DNS. `cloudflared` terminates two public hostnames (`degoog.itguys.ro`, `degoog-mcp.itguys.ro`).
+1. **`docker-compose.yml`** — five-service stack (`degoog`, `degoog-mcp`, `cloudflared`, `searxng`, `valkey`) on a single internal network `172.20.0.0/24`. Only `degoog` exposes a host port (`127.0.0.1:4444`); everything else is reached via compose DNS (including `degoog-mcp`, which `cloudflared` hits at `http://degoog-mcp:8765` over the internal network). `cloudflared` terminates two public hostnames (`degoog.itguys.ro`, `degoog-mcp.itguys.ro`).
 2. **`degoog-mcp/`** — TypeScript MCP server (Node 24+, pnpm, ESM). Wraps degoog's `GET /api/search` and a Readability-based URL fetch. Two transports: stdio (for Claude Code/Desktop) and streamable-http (for claude.ai web/mobile Custom Connectors).
 3. **`claude-degoog-plugin/`** — Claude Code plugin. Registers the stdio MCP server via `.mcp.json` and installs two hooks: a `PreToolUse` deny for `WebSearch`/`WebFetch` and a `UserPromptSubmit` context injection. The plugin's `.mcp.json` hard-codes `${CLAUDE_PLUGIN_ROOT}/../degoog-mcp/dist/index.js`, so the plugin dir **must remain a sibling of `degoog-mcp/`** and `degoog-mcp` must be built first.
 

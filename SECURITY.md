@@ -7,7 +7,7 @@ This is a single-maintainer self-hosted stack. Security response is best-effort,
 Please **do not** open a public issue for security-sensitive reports.
 
 - **Preferred:** use GitHub's private vulnerability reporting. On this repo, go to the **Security** tab → **Report a vulnerability**.
-- **Alternative:** email `dustfeather@gmail.com` with `degoog security` in the subject.
+- **Alternative:** email `contact@itguys.ro` with `degoog security` in the subject.
 
 Include steps to reproduce, which component is affected (MCP server, compose stack, plugin, scripts), and the impact you'd expect.
 

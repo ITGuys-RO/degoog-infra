@@ -4,9 +4,10 @@ services:
     container_name: degoog
     environment:
       - DEGOOG_DEFAULT_SEARCH_LANGUAGE=ro
+      - PUID=1002
+      - PGID=1002
     volumes:
       - ./data:/app/data
-    user: "1002:1002"
     ports:
       - "127.0.0.1:4444:4444"
     restart: unless-stopped

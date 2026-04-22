@@ -15,7 +15,7 @@ degoog/
 │   └── restore.sh            # extract + chown a backup
 ├── degoog-mcp/               # Node/TS MCP server wrapping degoog's /api/search
 ├── claude-degoog-plugin/     # Claude Code plugin: hooks + MCP registration
-├── MIGRATE.md                # runbook for moving to a new box
+├── RUNBOOK.md                # disaster-recovery / rebuild-from-backup
 └── README.md
 ```
 
@@ -144,15 +144,15 @@ pnpm run build
 docker compose build degoog-mcp && docker compose up -d degoog-mcp
 ```
 
-## Migration
+## Disaster recovery
 
-See [MIGRATE.md](./MIGRATE.md).
+See [RUNBOOK.md](./RUNBOOK.md).
 
 ## Backups
 
 ```sh
 ./scripts/backup.sh                  # manual
-crontab -e                           # automate (see MIGRATE.md)
+crontab -e                           # automate (see RUNBOOK.md)
 ```
 
 ## Configuration reference

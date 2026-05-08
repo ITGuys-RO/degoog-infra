@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/degoog-mcp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      production-deps:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      dev-deps:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "mcp"]
+    commit-message:
+      prefix: "chore(deps,mcp)"
+
+  - package-ecosystem: "docker"
+    directory: "/degoog-mcp"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps,docker)"
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps,compose)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: ["dependencies", "github-actions"]
+    commit-message:
+      prefix: "chore(ci)"

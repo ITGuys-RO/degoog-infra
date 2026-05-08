@@ -1,4 +1,4 @@
-FROM node:24-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml* ./
@@ -7,7 +7,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN pnpm run build
 
-FROM node:24-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
 RUN corepack enable
 ENV NODE_ENV=production \

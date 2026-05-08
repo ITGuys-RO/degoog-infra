@@ -54,7 +54,7 @@ services:
       - internal
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:9-alpine
     container_name: valkey
     command: valkey-server --save "" --appendonly no
     restart: unless-stopped

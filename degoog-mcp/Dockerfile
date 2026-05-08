@@ -1,15 +1,15 @@
-FROM node:24-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
-RUN corepack enable
+RUN npm install -g pnpm@9.12.0
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile || pnpm install
 COPY tsconfig.json ./
 COPY src ./src
 RUN pnpm run build
 
-FROM node:24-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
-RUN corepack enable
+RUN npm install -g pnpm@9.12.0
 ENV NODE_ENV=production \
     DEGOOG_URL=http://degoog.local:4444 \
     DEGOOG_DEFAULT_LANGUAGE=ro \

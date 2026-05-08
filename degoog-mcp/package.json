@@ -28,7 +28,7 @@
     "@modelcontextprotocol/sdk": "^1.2.0",
     "@mozilla/readability": "^0.6.0",
     "jsdom": "^25.0.0",
-    "zod": "^3.23.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",

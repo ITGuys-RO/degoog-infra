@@ -19,4 +19,5 @@ jobs:
       id-token: write
       actions: read
     uses: dustfeather/shared-workflows/.github/workflows/claude.yml@v1
-    secrets: inherit
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

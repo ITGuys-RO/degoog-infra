@@ -44,11 +44,12 @@ services:
     image: searxng/searxng:latest
     container_name: searxng
     environment:
-      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_BASE_URL=https://searxng.itguys.ro/
     volumes:
       - ./searxng-config:/etc/searxng
     depends_on:
       - valkey
+      - tor
     restart: unless-stopped
     networks:
       - internal
@@ -57,6 +58,13 @@ services:
     image: valkey/valkey:9-alpine
     container_name: valkey
     command: valkey-server --save "" --appendonly no
+    restart: unless-stopped
+    networks:
+      - internal
+
+  tor:
+    image: dperson/torproxy:latest
+    container_name: tor
     restart: unless-stopped
     networks:
       - internal

@@ -207,56 +207,70 @@ The current `./data` directory has ~80 MB. Get it onto the PVC:
 
 Do NOT deploy another cloudflared.
 
-1. **CF dashboard** → Zero Trust → Networks → Tunnels → click the tunnel
-   with UUID `1a6623ce-1e68-4898-bcc3-a69b0a7abee2` (`itguys-cluster`) →
-   **Public Hostname** tab → **Add a public hostname** for each of the
-   following three:
+1. **Tunnel ingress** — for a dashboard-managed (token-based) tunnel this
+   can be done in the UI (Zero Trust → Networks → Tunnels →
+   `itguys-cluster` → Public Hostname → Add) OR via the API
+   (`PUT /accounts/{acct}/cfd_tunnel/{tunnel}/configurations`). Add all
+   three hostnames with **service type HTTP** (the cluster Services speak
+   plain HTTP — HTTPS here causes `tls: first record does not look like a
+   TLS handshake` → 502):
 
-   | Subdomain | Domain | Service type | URL |
-   |---|---|---|---|
-   | `degoog-mcp` | `itguys.ro` | HTTP | `degoog-mcp.degoog.svc.cluster.local:8765` |
-   | `searxng` | `itguys.ro` | HTTP | `searxng.degoog.svc.cluster.local:8080` |
-   | `degoog` | `itguys.ro` | HTTP | `degoog.degoog.svc.cluster.local:4444` |
+   | Hostname | Service URL |
+   |---|---|
+   | `degoog.itguys.ro` | `http://degoog.degoog.svc.cluster.local:4444` |
+   | `searxng.itguys.ro` | `http://searxng.degoog.svc.cluster.local:8080` |
+   | `degoog-mcp.itguys.ro` | `http://degoog-mcp.degoog.svc.cluster.local:8765` |
 
-   The third hostname (`degoog.itguys.ro`) exposes the upstream degoog
-   web UI for direct browser use without WARP — Access SSO at the edge
-   gates it. Without this, the only way to use the UI is via WARP.
+   `degoog.itguys.ro` exposes the upstream degoog web UI for direct
+   browser use without WARP. **If you add a hostname via the API, also
+   create the CNAME** (`<subdomain>` → `<tunnel-id>.cfargotunnel.com`,
+   proxied) — the `/configurations` endpoint does NOT create DNS records;
+   the dashboard "Add public hostname" button does both.
 
-2. **CF dashboard** → Access → Applications → Add an application →
-   Self-hosted for each of the three hostnames. Policies allow the same
-   emails as the existing Headlamp app (`dustfeather@gmail.com`,
-   `contact@itguys.ro`). Session duration ≥ 24 h to match Headlamp.
+2. **Access applications** — Access → Applications → Add an application →
+   Self-hosted, one per hostname. Allow policy: same emails as the
+   existing Headlamp app (`dustfeather@gmail.com`, `contact@itguys.ro`),
+   session duration ≥ 24 h. For `degoog.itguys.ro` and `searxng.itguys.ro`
+   that's all — a single Allow policy.
 
-3. **Add a Bypass policy on `degoog-mcp.itguys.ro`** for the OAuth
-   discovery paths — this is REQUIRED for the remote MCP transport (see
-   Phase 9). Without it, Claude Code (and any other MCP client) cannot
-   bootstrap the OAuth flow because Access redirects the discovery
-   request to the SSO page instead of returning JSON.
+3. **`degoog-mcp.itguys.ro` Access app — use a Service Token, not SSO.**
+   The MCP client (Claude Code) is headless, so an interactive SSO flow
+   is the wrong tool. Instead:
+   - Zero Trust → Access → **Service Auth → Service Tokens** → create one
+     (e.g. named `degoog-mcp`). Copy the **Client ID** (`<random>.access`)
+     and **Client Secret** (shown once).
+   - In the `degoog-mcp.itguys.ro` Access application, add a policy with
+     **Action: Service Auth** that Includes that token. Protect the whole
+     hostname (no path restriction) — the client sends the credential
+     headers on every request, so `/mcp`, `/healthz`, `/.well-known/*`
+     are all covered. Optionally also keep a human Allow policy alongside
+     it for browser debugging.
+   - The plugin (`claude-degoog-plugin/.mcp.json`) sends
+     `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers, sourced
+     from `${DEGOOG_MCP_CF_ACCESS_CLIENT_ID}` /
+     `${DEGOOG_MCP_CF_ACCESS_CLIENT_SECRET}` env vars (so the secret
+     stays out of git). See Phase 9.
 
-   In the `degoog-mcp.itguys.ro` Access application, add a **Bypass**
-   policy ABOVE the SSO-required policy with rule
-   `Include → Everyone` and **Path** restrictions on the policy:
-   - `/.well-known/oauth-protected-resource`
-   - `/.well-known/oauth-authorization-server`
-   - `/authorize` (CF Access's own OAuth bridge path; the MCP server proxies it but Access must let the unauthenticated request reach origin)
-   - `/token`
-   - `/register`
-   - `/healthz` (optional, useful for monitoring)
+   Note: CF Access *policies* cannot path-match — only *applications*
+   can (via `domain/path`). The Service-Auth-on-whole-hostname approach
+   sidesteps that entirely. (The MCP server's OAuth-PRM bridge —
+   `/.well-known/oauth-*`, `/authorize`, `/token`, `/register` — still
+   works for interactive clients like claude.ai web, but with whole-host
+   Service Auth those paths require the token too; that's fine for the
+   Claude Code path and claude.ai-web MCP isn't shipping yet anyway.)
 
-   The Bypass scope is path-only — every OTHER path on
-   `degoog-mcp.itguys.ro` still requires SSO. CodeQL-style nervousness
-   is unwarranted here: the bypassed endpoints are designed to be
-   public per RFC 8414.
-
-4. Test (still expect 302/redirect on the main paths — that's correct):
+4. Test:
    ```bash
-   curl -sI https://degoog.itguys.ro/                       # 302 → SSO
-   curl -sI https://searxng.itguys.ro/                      # 302 → SSO
-   curl -sI https://degoog-mcp.itguys.ro/                   # 302 → SSO
-   curl -s  https://degoog-mcp.itguys.ro/.well-known/oauth-protected-resource | jq .
-   # ↑ MUST return JSON, NOT a 302. If 302, the Bypass policy isn't applied.
+   curl -sI https://degoog.itguys.ro/                       # 302 → SSO  ✓
+   curl -sI https://searxng.itguys.ro/                      # 302 → SSO  ✓
+   curl -sI https://degoog-mcp.itguys.ro/mcp                # 401/302 (Access wants the token)  ✓
+   curl -s -H "CF-Access-Client-Id: $ID" -H "CF-Access-Client-Secret: $SECRET" \
+     -X POST -H 'Content-Type: application/json' \
+     -H 'Accept: application/json, text/event-stream' \
+     --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"p","version":"0"}}}' \
+     https://degoog-mcp.itguys.ro/mcp
+   # ↑ with valid creds: MCP initialize result. Without: Access 401/302.
    ```
-   After SSO, the main hostnames respond from origin.
 
 ### Phase 5 — Backups
 
@@ -346,37 +360,49 @@ k3d/kind cluster against the same manifests in `k8s/`, not a separate
 compose path. Don't add a `k8s/local/` overlay until someone actually
 needs it.
 
-### Phase 9 — Local Claude Code → cluster MCP (Option C)
+### Phase 9 — Local Claude Code → cluster MCP (Option C, via Service Token)
 
 **Locked-in decision**: local Claude Code talks to the cluster MCP via
 its remote streamable-HTTP transport at
 `https://degoog-mcp.itguys.ro/mcp`, NOT via a local stdio child process.
-Authenticates through Cloudflare Access SSO using the OAuth-PRM bridge
-already implemented in `degoog-mcp/src/server.ts`. No local Node.js
-runtime needed; no port-forward; no WARP.
+It authenticates with a **Cloudflare Access Service Token** — two
+headers (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) on every
+request — not the interactive OAuth-SSO flow. No local Node.js runtime,
+no port-forward, no WARP, no browser handshake.
+
+(Rationale: a CLI client is headless. The MCP server's OAuth-PRM bridge
+in `src/server.ts` is the right tool for *interactive* clients like
+claude.ai web; for Claude Code a service token is simpler and durable.
+The bridge stays in place, just unused by this plugin.)
 
 **Prerequisites** (must be true before this works):
 
-1. Phase 4 is complete, INCLUDING the Access Bypass policy on the OAuth
-   discovery paths for `degoog-mcp.itguys.ro`. Without the Bypass,
-   Claude Code's first OAuth request to
-   `/.well-known/oauth-protected-resource` gets a 302 to the SSO page
-   instead of a JSON discovery document, and the MCP connection never
-   bootstraps.
-2. The cluster Deployment `degoog-mcp` has both
-   `MCP_PUBLIC_BASE_URL=https://degoog-mcp.itguys.ro` and
-   `MCP_OAUTH_AUTHORIZATION_SERVER=https://itguys.cloudflareaccess.com`
-   set (already in `k8s/60-mcp.yaml`).
+1. Phase 4 done, including: the `degoog-mcp.itguys.ro` Access app exists
+   with a **Service Auth** policy referencing the `degoog-mcp` service
+   token, and the tunnel ingress + CNAME for `degoog-mcp.itguys.ro` are
+   in place.
+2. The cluster Deployment `degoog-mcp` is Running (image
+   `ghcr.io/itguys-ro/degoog-mcp:latest`, package public). `POST /mcp`
+   with valid Service-Token headers returns an `initialize` result.
+3. Two env vars exported wherever Claude Code reads its environment
+   (the user's `~/.bashrc` / `~/.profile`):
+   ```sh
+   export DEGOOG_MCP_CF_ACCESS_CLIENT_ID="<client-id>.access"
+   export DEGOOG_MCP_CF_ACCESS_CLIENT_SECRET="<client-secret>"
+   ```
 
-**Change in this repo**: `claude-degoog-plugin/.mcp.json` switches from
-spawning a stdio child to declaring a remote HTTP server:
+**Change in this repo**: `claude-degoog-plugin/.mcp.json` becomes:
 
 ```json
 {
   "mcpServers": {
     "degoog": {
       "type": "http",
-      "url": "https://degoog-mcp.itguys.ro/mcp"
+      "url": "https://degoog-mcp.itguys.ro/mcp",
+      "headers": {
+        "CF-Access-Client-Id": "${DEGOOG_MCP_CF_ACCESS_CLIENT_ID}",
+        "CF-Access-Client-Secret": "${DEGOOG_MCP_CF_ACCESS_CLIENT_SECRET}"
+      }
     }
   }
 }
@@ -386,56 +412,38 @@ The plugin's `PreToolUse` deny on `WebSearch`/`WebFetch` and the
 `UserPromptSubmit` context injection stay unchanged — they don't depend
 on the MCP transport.
 
-**First-connect handshake** (one-time per machine):
-
-1. User opens Claude Code in any repo.
-2. Claude Code calls `POST https://degoog-mcp.itguys.ro/mcp` →
-   Access intercepts → 401/302 with WWW-Authenticate pointing at PRM.
-3. Claude Code fetches
-   `https://degoog-mcp.itguys.ro/.well-known/oauth-protected-resource`
-   — bypassed by Access, returns JSON pointing at the same hostname as
-   its authorization server.
-4. Claude Code fetches `.../.well-known/oauth-authorization-server` —
-   bypassed, returns JSON pointing at `/authorize`, `/token`,
-   `/register` on the same origin.
-5. Claude Code calls `/register` (also bypassed) — the MCP server
-   proxies dynamic client registration to
-   `itguys.cloudflareaccess.com/cdn-cgi/access/oauth/registration`.
-6. Claude Code opens the browser to `/authorize` — proxied to CF
-   Access's OAuth endpoint, user completes Google SSO, gets a code.
-7. Claude Code exchanges code for token at `/token` (proxied).
-8. Subsequent `POST /mcp` calls carry the Bearer token. Access sees a
-   valid token, passes through to origin. MCP works.
-
-Once the token's stored, subsequent Claude Code sessions reuse it
-until it expires (Access session length, default 24 h — extend if you
-don't want to re-SSO daily).
-
-**Validation TODO** (do this on first deploy):
+**Validation** (do this on first deploy):
 
 ```bash
-# From the user's WSL after Phase 4 is done:
-curl -s https://degoog-mcp.itguys.ro/.well-known/oauth-protected-resource | jq .
-curl -s https://degoog-mcp.itguys.ro/.well-known/oauth-authorization-server | jq .
-# Both must return JSON (not HTML/302). If you see <html>, the Bypass policy is wrong.
+# Without creds — Access should reject:
+curl -sI -X POST https://degoog-mcp.itguys.ro/mcp        # expect 401/302 from Access
 
-# Then in a fresh Claude Code session (any repo), try a degoog tool call.
-# First call should pop a browser for SSO; subsequent calls just work.
+# With creds — should get an MCP initialize result:
+curl -s -H "CF-Access-Client-Id: $DEGOOG_MCP_CF_ACCESS_CLIENT_ID" \
+        -H "CF-Access-Client-Secret: $DEGOOG_MCP_CF_ACCESS_CLIENT_SECRET" \
+        -X POST -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"p","version":"0"}}}' \
+        https://degoog-mcp.itguys.ro/mcp
+
+# Then reload the plugin in Claude Code and run a search-y prompt —
+# mcp__degoog__degoog_search should answer with no browser popup.
 ```
 
-**Risk**: this exact end-to-end flow (Claude Code CLI → MCP with
-OAuth-PRM via CF Access) is not yet validated in production. The
-server-side code is built and the design follows the MCP OAuth spec,
-but if a corner of Claude Code's client doesn't match what
-`server.ts` exposes, the fallback is to either fix the server or
-temporarily go back to stdio with a `kubectl port-forward` against
-the `degoog` Service (Option A from the design discussion — see git
-history of this file for the full alternatives).
+**Risk / fallbacks**:
+- If a Claude Code build doesn't expand `${VAR}` inside `.mcp.json`
+  `headers`: put the literal values in `.mcp.json` and DON'T commit that
+  change, or front the MCP with a tiny local header-injecting proxy.
+  Never commit the client secret.
+- If the whole HTTP-MCP path misbehaves: temporary fallback is stdio +
+  `kubectl port-forward -n degoog svc/degoog 4444:4444` against the
+  upstream degoog (Option A from the original design discussion — see
+  git history of this file).
 
 **What gets deleted** under Option C, beyond Phase 8:
 
-- `claude-degoog-plugin/.mcp.json` keeps the same path but its
-  `command` / `args` / `env` block is replaced with `type` + `url`.
+- `claude-degoog-plugin/.mcp.json`'s old `command` / `args` / `env`
+  stdio block (replaced with `type` + `url` + `headers`).
 - The local `degoog-mcp/dist/` build is no longer needed for plugin
   function. The `degoog-mcp/` SOURCE tree stays — the build workflow
   uses it as the Docker build context.
@@ -453,7 +461,7 @@ history of this file for the full alternatives).
 | 5 | Manifest layout | Plain YAML in `k8s/` | No Helm, no Kustomize. Apply with `kubectl apply -f k8s/`. |
 | 6 | `wsl` node usage | All workloads pin to `asus-laptop` | No tolerations, no scheduling to wsl. Section 2 covers rationale. |
 | 7 | Public hostnames on the tunnel | Three: `degoog-mcp.itguys.ro`, `searxng.itguys.ro`, `degoog.itguys.ro` | All Access-gated with SSO. `degoog.itguys.ro` exposes the search UI so it works in any browser without WARP. |
-| 8 | Local Claude Code → MCP after migration | **Option C: remote HTTP MCP** at `https://degoog-mcp.itguys.ro/mcp` with CF Access OAuth-PRM bridge | No stdio child, no port-forward. Requires Access Bypass policy on `/.well-known/oauth-*` + `/authorize`+`/token`+`/register`. See Phase 9. |
+| 8 | Local Claude Code → MCP after migration | **Option C: remote HTTP MCP** at `https://degoog-mcp.itguys.ro/mcp`, authed with a **CF Access Service Token** (`CF-Access-Client-Id`/`-Secret` headers, sourced from env vars) | No stdio child, no port-forward, no browser SSO. Requires an Access app on `degoog-mcp.itguys.ro` with a Service Auth policy for the `degoog-mcp` token. See Phase 9. The server's OAuth-PRM bridge stays for interactive clients (claude.ai web) but is unused by the plugin. |
 
 ---
 

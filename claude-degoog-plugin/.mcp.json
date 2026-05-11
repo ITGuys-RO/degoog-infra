@@ -2,7 +2,11 @@
   "mcpServers": {
     "degoog": {
       "type": "http",
-      "url": "https://degoog-mcp.itguys.ro/mcp"
+      "url": "https://degoog-mcp.itguys.ro/mcp",
+      "headers": {
+        "CF-Access-Client-Id": "${DEGOOG_MCP_CF_ACCESS_CLIENT_ID}",
+        "CF-Access-Client-Secret": "${DEGOOG_MCP_CF_ACCESS_CLIENT_SECRET}"
+      }
     }
   }
 }

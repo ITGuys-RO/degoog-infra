@@ -35,6 +35,23 @@ spec:
           ports:
             - name: http
               containerPort: 4444
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            failureThreshold: 3
           volumeMounts:
             - name: data
               mountPath: /app/data

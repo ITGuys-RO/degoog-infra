@@ -14,7 +14,12 @@ concurrency:
 
 jobs:
   build:
-    runs-on: arc-itguys-ro
+    # NOTE: was `arc-itguys-ro` (the in-cluster ARC scale set) but GitHub
+    # wasn't routing jobs to it for this repo — see git history. Building a
+    # small Node image + pushing to GHCR doesn't need self-hosted DinD;
+    # ubuntu-latest has Docker + buildx. Switch back once org-runner routing
+    # is fixed if you want to keep builds on-cluster.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write

@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: degoog-data
+  namespace: degoog
+  labels:
+    app.kubernetes.io/name: degoog
+    app.kubernetes.io/part-of: degoog
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: degoog-backups
+  namespace: degoog
+  labels:
+    app.kubernetes.io/name: degoog-backups
+    app.kubernetes.io/part-of: degoog
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

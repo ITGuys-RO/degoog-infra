@@ -23,6 +23,10 @@ spec:
         # the searxng-settings ConfigMap, run: kubectl rollout restart deploy/searxng
         config.degoog/settings-source: configmap/searxng-settings
     spec:
+      # K8s auto-injects SEARXNG_PORT=tcp://<clusterIP>:8080 (Service env-var
+      # convention) which the searxng entrypoint misreads as the bind port.
+      # Disable the legacy service-link env vars — service discovery is via DNS.
+      enableServiceLinks: false
       nodeSelector:
         kubernetes.io/hostname: asus-laptop
       containers:
@@ -31,6 +35,10 @@ spec:
           env:
             - name: SEARXNG_BASE_URL
               value: https://searxng.itguys.ro/
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: SEARXNG_BIND_ADDRESS
+              value: "0.0.0.0"
           ports:
             - name: http
               containerPort: 8080

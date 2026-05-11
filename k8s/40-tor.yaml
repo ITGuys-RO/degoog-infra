@@ -17,6 +17,7 @@ spec:
         app.kubernetes.io/name: tor
         app.kubernetes.io/part-of: degoog
     spec:
+      enableServiceLinks: false
       nodeSelector:
         kubernetes.io/hostname: asus-laptop
       containers:

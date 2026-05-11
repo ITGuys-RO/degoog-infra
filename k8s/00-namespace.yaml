@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: degoog
+  labels:
+    app.kubernetes.io/part-of: degoog

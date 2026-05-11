@@ -57,7 +57,7 @@ Key facts:
 |---|---|
 | K3s version | v1.35.4+k3s1 |
 | Nodes | `asus-laptop` (control-plane, 100.96.0.2, 30 GB RAM, always-on) and `wsl` (sporadic, 100.96.0.1, may be down for hours/days) |
-| Node taint on `wsl` | `ephemeral=true:NoSchedule`. Live-verify with `kubectl --context=k3s-itguys get node wsl -o jsonpath='{.spec.taints}'`. Pods without a matching toleration only land on `asus-laptop` — which is the intended outcome for every workload in this stack, so don't add tolerations. |
+| Node taint on `wsl` | **Unreliable** — `ephemeral=true:NoSchedule` has been applied imperatively (`kubectl taint`) but it does NOT persist; when the `wsl` node rejoins (e.g. after `wsl --shutdown`) the taint is gone until someone re-applies it. Live-verify with `kubectl --context=k3s-itguys get node wsl -o jsonpath='{.spec.taints}'` — it may be empty. **Do not rely on the taint to keep pods off `wsl`.** Instead, pin every workload (and any ARC listener/runner) to `asus-laptop` with `nodeSelector: kubernetes.io/hostname=asus-laptop`. (`wsl`'s outbound goes over the Cloudflare Mesh through the Windows host and is flaky — pods that land there fail DNS / long transfers.) Persistent fix would be `--node-taint ephemeral=true:NoSchedule` on the k3s-agent service, but until that's done, assume `wsl` is schedulable. |
 | Default storage class | `local-path` (provisioner `local-path-provisioner` in `kube-system`). PVCs are pinned to the node where the pod first runs. |
 | Existing cloudflared tunnel | UUID `1a6623ce-1e68-4898-bcc3-a69b0a7abee2`, name `itguys-cluster`, deployed in namespace `cloudflare-tunnel` (2 replicas). Token-based / dashboard-managed ingress (no in-cluster ingress ConfigMap — confirmed: only `kube-root-ca.crt` lives there). Currently routes `headlamp.itguys.ro` → `headlamp.headlamp.svc.cluster.local:80`. **Reuse this tunnel** — add new public hostnames via the CF Zero Trust dashboard, not via manifest changes. |
 | Cloudflared Deployment uses | `TUNNEL_TRANSPORT_PROTOCOL=http2` env var (UDP/443 to CF edge is blocked on this LAN). Liveness `/ready` with `failureThreshold=6, periodSeconds=15`. |
@@ -69,8 +69,10 @@ Key facts:
 **Workload placement guideline**: ALL workloads pin to `asus-laptop` via
 `nodeSelector: kubernetes.io/hostname=asus-laptop`. Three reasons:
 (1) local-path PVs are node-local so anything stateful must pin anyway;
-(2) `wsl` carries `ephemeral=true:NoSchedule` and no toleration is set
-on any of these workloads; (3) `asus-laptop` is the control-plane —
+(2) `wsl`'s outbound network (Mesh-via-Windows) is flaky and the
+`ephemeral=true:NoSchedule` taint that's supposed to keep pods off it is
+imperative-only and disappears on node rejoin — so `nodeSelector` is the
+only thing you can trust; (3) `asus-laptop` is the control-plane —
 if it's down, the cluster is down, so distributing the stateless pods
 to `wsl` buys no real availability. Keep all five Deployments
 (`degoog`, `degoog-mcp`, `searxng`, `valkey`, `tor`) on `asus-laptop`.
@@ -111,33 +113,59 @@ NO new cloudflared):
 
 **Why first**: nothing else can run until the image exists in a registry.
 
-1. Add a workflow at `.github/workflows/build-mcp.yml` in this repo:
+1. **Runner**: `degoog-infra` gets its own **repo-scoped** ARC scale set
+   `arc-itguys-ro-degoog-infra` (NOT the org-scoped `arc-itguys-ro` — GitHub
+   never wired `degoog-infra` into the org runner group, so jobs sat
+   unrouted; a repo-scoped set is bound directly to the repo and works).
+   Created with:
+   ```bash
+   helm install arc-itguys-ro-degoog-infra \
+     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+     --version 0.14.1 --namespace arc-runners -f - <<'YAML'
+   containerMode: { type: dind }
+   githubConfigSecret: github-app-itguys
+   githubConfigUrl: https://github.com/ITGuys-RO/degoog-infra
+   maxRunners: 2
+   minRunners: 0
+   # Pin BOTH the listener and the runner pods to asus-laptop. The wsl node's
+   # outbound (Mesh via Windows) is flaky — a listener that lands there fails
+   # DNS to api.github.com. (Also: wsl's NoSchedule taint is imperative-only
+   # and disappears whenever the node rejoins, so don't rely on it.)
+   listenerTemplate:
+     spec:
+       nodeSelector: { kubernetes.io/hostname: asus-laptop }
+       containers: [ { name: listener } ]
+   template:
+     spec:
+       nodeSelector: { kubernetes.io/hostname: asus-laptop }
+       containers:
+         - { command: [ /home/runner/run.sh ], image: ghcr.io/actions/actions-runner:latest, name: runner }
+   YAML
+   ```
+2. Add a workflow at `.github/workflows/build-mcp.yml`:
    - Trigger: `push` to `main`, paths `degoog-mcp/**` and the workflow itself;
      also `workflow_dispatch`.
-   - `runs-on: arc-itguys-ro` (org-scoped DinD runner in ns `arc-runners`,
-     maxRunners=5). Do NOT use `arc-df-*` runners — those are
-     `dustfeather/`-scoped and this repo lives in the `ITGuys-RO` org.
-   - Steps: pinned `actions/checkout@<SHA> # v6.0.2` (use the same SHA as
-     the other workflows in this repo — `de0fac2e4500dabe0009e67214ff5f5447ce83dd`
-     — for CodeQL `actions/unpinned-tag` cleanliness), log into GHCR with
-     `${{ secrets.GITHUB_TOKEN }}`, `docker buildx build` the
-     `./degoog-mcp` directory, push two tags:
-     `ghcr.io/itguys-ro/degoog-mcp:${{ github.sha }}` and
-     `ghcr.io/itguys-ro/degoog-mcp:latest`.
-   - Set `permissions: { contents: read, packages: write }`.
-2. Push the workflow file. Watch the run in github.com Actions tab AND
-   `kubectl --context=k3s-itguys -n arc-runners get pods -w` (you should
-   see an ephemeral runner pod spin up).
-3. Verify: `https://github.com/ITGuys-RO/degoog-infra/pkgs/container/degoog-mcp`
-   should show the new image.
-4. **First push of a new GHCR package is private by default.** After the
-   first successful build, flip it to public in GitHub:
-   `Settings → Packages → degoog-mcp → Change visibility → Public`.
-   Once public, the cluster pulls anonymously and Phase 2 needs no
-   `imagePullSecret`.
+   - `runs-on: arc-itguys-ro-degoog-infra`.
+   - Steps: pinned `actions/checkout@<SHA> # v6.0.2` (same SHA as the other
+     workflows in this repo — `de0fac2e4500dabe0009e67214ff5f5447ce83dd` — for
+     CodeQL `actions/unpinned-tag` cleanliness), buildx, log into GHCR with
+     `${{ secrets.GITHUB_TOKEN }}`, build `./degoog-mcp`, push
+     `ghcr.io/itguys-ro/degoog-mcp:sha-<commit>` + `:latest`.
+   - `permissions: { contents: read, packages: write }`.
+3. Push. Watch the run in github.com Actions AND
+   `kubectl --context=k3s-itguys -n arc-runners get pods -w` (ephemeral
+   `arc-itguys-ro-degoog-infra-*-runner-*` pod spins up on asus-laptop).
+4. Verify: `https://github.com/ITGuys-RO/degoog-infra/pkgs/container/degoog-mcp`.
+5. **First push of a new GHCR package is private by default.** Flip it to
+   public: `github.com/orgs/ITGuys-RO/packages/container/degoog-mcp/settings`
+   → Change visibility → Public. Then the cluster pulls anonymously and
+   Phase 2 needs no `imagePullSecret`. (If the "make public" option is
+   missing, it's an org "Package creation" policy — Org Settings → Packages
+   → allow Public — or you lack package-admin; fall back to an
+   `imagePullSecret` with a `read:packages` PAT.)
 
-**Locked-in decision**: GHCR package will be **public** (user choice).
-Skip the `imagePullSecret` section in Phase 2.
+**Locked-in decision**: GHCR package is **public** (user choice). No
+`imagePullSecret`. (As of cutover the package was successfully made public.)
 
 ### Phase 2 — K8s manifests
 

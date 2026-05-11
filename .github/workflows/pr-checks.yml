@@ -1,10 +1,17 @@
-name: Claude Code Review
+name: PR checks
 
 on:
   pull_request:
     types: [opened, synchronize]
     paths-ignore:
-      - '.github/workflows/claude-code-review.yml'
+      - '.github/workflows/pr-checks.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   review:

@@ -14,12 +14,10 @@ concurrency:
 
 jobs:
   build:
-    # NOTE: was `arc-itguys-ro` (the in-cluster ARC scale set) but GitHub
-    # wasn't routing jobs to it for this repo — see git history. Building a
-    # small Node image + pushing to GHCR doesn't need self-hosted DinD;
-    # ubuntu-latest has Docker + buildx. Switch back once org-runner routing
-    # is fixed if you want to keep builds on-cluster.
-    runs-on: ubuntu-latest
+    # Repo-scoped ARC scale set in the k3s cluster (DinD). The org-scoped
+    # `arc-itguys-ro` set wasn't routing jobs to this repo, so this repo
+    # got its own — same pattern as the dustfeather `arc-df-<repo>` sets.
+    runs-on: arc-itguys-ro-degoog-infra
     permissions:
       contents: read
       packages: write

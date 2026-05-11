@@ -1,12 +1,8 @@
 {
   "mcpServers": {
     "degoog": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/../degoog-mcp/dist/index.js"],
-      "env": {
-        "DEGOOG_URL": "http://degoog.local:4444",
-        "DEGOOG_DEFAULT_LANGUAGE": "ro"
-      }
+      "type": "http",
+      "url": "https://degoog-mcp.itguys.ro/mcp"
     }
   }
 }

@@ -4,23 +4,19 @@ Forces Claude Code to route all web access through a self-hosted [degoog](https:
 
 ## What it does
 
-1. Registers the `degoog` MCP server (stdio) providing `degoog_search` and `degoog_fetch`.
+1. Registers the `degoog` MCP server (remote streamable-HTTP) providing `degoog_search` and `degoog_fetch`. The server runs in the K3s cluster at `https://degoog-mcp.itguys.ro/mcp`, gated by Cloudflare Access SSO.
 2. Installs a `PreToolUse` hook that **denies** the built-in `WebSearch` and `WebFetch` tools with a message steering Claude to the MCP tools.
 3. Installs a `UserPromptSubmit` hook that prefaces every session with a short reminder that web access is routed through degoog.
 
-Net effect: Claude can't accidentally reach the open web. Every query and fetch goes through your degoog exit IP.
+Net effect: Claude can't accidentally reach the open web. Every query and fetch goes through the degoog exit IP.
 
 ## Prerequisites
 
-1. A running degoog instance at `http://degoog.local:4444` (override via `DEGOOG_URL` in `.mcp.json` if different).
-2. [`degoog-mcp`](../degoog-mcp) built locally:
-   ```sh
-   cd ../degoog-mcp
-   pnpm install
-   pnpm run build
-   ```
-   The plugin's `.mcp.json` references `${CLAUDE_PLUGIN_ROOT}/../degoog-mcp/dist/index.js`, so the plugin dir must be a sibling of `degoog-mcp/`.
-3. Node 24+.
+1. The K3s degoog stack deployed and reachable — see `../K3S_MIGRATION_PLAN.md`. Specifically, `degoog-mcp.itguys.ro` must have an Access **Bypass** policy on `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/authorize`, `/token`, and `/register` so MCP OAuth can bootstrap (Phase 4 of the plan).
+2. Access to the `dustfeather@gmail.com` (or equivalent) account that satisfies the SSO policy on `degoog-mcp.itguys.ro`.
+3. Claude Code with HTTP-MCP support. First connection opens a browser for SSO; subsequent calls reuse the cached OAuth token for the Access session duration.
+
+The previous setup (stdio plugin + local `degoog-mcp/dist/index.js` + docker-compose `degoog` container) has been replaced by the cluster path. The `degoog-mcp/` source tree still lives in this repo because the GH Actions workflow builds the cluster image from it.
 
 ## Install (development)
 
@@ -51,22 +47,20 @@ Expected:
 
 ## Overriding defaults
 
-Edit `.mcp.json` in the plugin to change the degoog URL or default language:
+The plugin's `.mcp.json` points at a single remote endpoint:
 
 ```json
 {
   "mcpServers": {
     "degoog": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/../degoog-mcp/dist/index.js"],
-      "env": {
-        "DEGOOG_URL": "http://your-degoog:4444",
-        "DEGOOG_DEFAULT_LANGUAGE": "en"
-      }
+      "type": "http",
+      "url": "https://degoog-mcp.itguys.ro/mcp"
     }
   }
 }
 ```
+
+If you've forked this for a different cluster or hostname, change the `url`. The server-side defaults (`DEGOOG_URL`, `DEGOOG_DEFAULT_LANGUAGE`, `DEGOOG_TIMEOUT_MS`) live on the cluster Deployment env (see `../k8s/60-mcp.yaml`), not in the plugin.
 
 ## Files
 

@@ -20,6 +20,14 @@ spec:
         app.kubernetes.io/part-of: degoog
     spec:
       enableServiceLinks: false
+      # The upstream ghcr.io/fccview/degoog image runs Bun as PID 1 with no
+      # init/subreaper. degoog shells out to `git` and does not reap the
+      # children, so exited git processes pile up as <defunct> zombies that
+      # nothing ever reaps. Sharing the process namespace makes the pod's
+      # pause (infra) container PID 1; the pause container is a real init that
+      # reaps zombies continuously. Single-container pod, so the usual
+      # cross-container process-visibility caveat does not apply here.
+      shareProcessNamespace: true
       nodeSelector:
         kubernetes.io/hostname: asus-laptop
       containers:

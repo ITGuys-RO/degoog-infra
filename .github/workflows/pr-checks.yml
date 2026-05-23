@@ -23,7 +23,7 @@ jobs:
       id-token: write
     uses: dustfeather/shared-workflows/.github/workflows/claude-code-review.yml@v1
     with:
-      runner: arc-itguys-ro-degoog-infra
+      runner: arc-itguys-ro
       path-to-bun: /usr/local/bin/bun
       path-to-claude: /usr/local/bin/claude
     secrets:

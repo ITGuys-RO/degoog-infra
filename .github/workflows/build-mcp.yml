@@ -14,11 +14,12 @@ concurrency:
 
 jobs:
   build:
-    # Org-scoped ARC scale set in the k3s cluster (DinD). The earlier
-    # repo-scoped `arc-itguys-ro-degoog-infra` set is retired now that
-    # the org runner group has visibility=all and the itguys-arc-runners
-    # App is installed on all repos.
-    runs-on: arc-itguys-ro
+    # Repo-scoped ARC scale set in the k3s cluster (DinD). The org-scoped
+    # `arc-itguys-ro` set is registered but does not deliver assigned jobs
+    # to its runner pods (runners spawn with exitCode 0 without claiming
+    # the job). Until that's resolved, this repo stays on its own scale
+    # set — same pattern as the dustfeather `arc-df-<repo>` sets.
+    runs-on: arc-itguys-ro-degoog-infra
     permissions:
       contents: read
       packages: write

@@ -14,3 +14,5 @@ searxng-config/
 
 # Backup artifacts
 backups/
+# Added by code-review-graph
+.code-review-graph/
